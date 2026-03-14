@@ -31,11 +31,8 @@ ARG PIP_VERSION
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 RUN python3 -m pip install -U pip==${PIP_VERSION}
 
-# We build OpenH264, FFmpeg and PyAV in a separate build stage,
-# because this way Docker can do it in parallel to all the other packages.
 FROM build-image-base AS build-image-av
 
-# Compile Openh264 and FFmpeg
 ARG PREFIX=/opt/ffmpeg
 ARG PKG_CONFIG_PATH=${PREFIX}/lib/pkgconfig
 
@@ -56,10 +53,6 @@ RUN curl -sL https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.gz --outpu
 
 COPY utils/dataset_manifest/requirements.txt /tmp/utils/dataset_manifest/requirements.txt
 
-# Since we're using pip-compile-multi, each dependency can only be listed in
-# one requirements file. In the case of PyAV, that should be
-# `dataset_manifest/requirements.txt`. Make sure it's actually there,
-# and then remove everything else.
 RUN grep -q '^av==' /tmp/utils/dataset_manifest/requirements.txt
 RUN sed -i '/^av==/!d' /tmp/utils/dataset_manifest/requirements.txt
 
@@ -67,19 +60,17 @@ RUN python3 -m pip wheel --no-binary=av \
     -r /tmp/utils/dataset_manifest/requirements.txt \
     -w /tmp/wheelhouse
 
-# This stage builds wheels for all dependencies (except PyAV)
 FROM build-image-base AS build-image
 
 COPY cvat/requirements/ /tmp/cvat/requirements/
 COPY utils/dataset_manifest/requirements.txt /tmp/utils/dataset_manifest/requirements.txt
 
-# Exclude av from the requirements file
 RUN sed -i '/^av==/d' /tmp/utils/dataset_manifest/requirements.txt
 
 ARG CVAT_CONFIGURATION="production"
 
-RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip/http-v2 \
-    DATUMARO_HEADLESS=1 python3 -m pip wheel --no-deps --no-binary lxml,xmlsec \
+# --- PERBAIKAN DI SINI: Mount Cache Dihapus ---
+RUN DATUMARO_HEADLESS=1 python3 -m pip wheel --no-deps --no-binary lxml,xmlsec \
     -r /tmp/cvat/requirements/${CVAT_CONFIGURATION}.txt \
     -w /tmp/wheelhouse
 
@@ -109,7 +100,6 @@ ARG USER="django"
 ARG CVAT_CONFIGURATION="production"
 ENV DJANGO_SETTINGS_MODULE="cvat.settings.${CVAT_CONFIGURATION}"
 
-# Install necessary apt packages
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get --no-install-recommends install -yq \
         bzip2 \
@@ -138,10 +128,8 @@ RUN apt-get update && \
     dpkg-reconfigure -f noninteractive tzdata && \
     rm -rf /var/lib/apt/lists/*
 
-# Install smokescreen
 COPY --from=build-smokescreen /tmp/smokescreen /usr/local/bin/smokescreen
 
-# Add a non-root user
 ENV USER=${USER}
 ENV HOME /home/${USER}
 RUN adduser --uid=1000 --shell /bin/bash --disabled-password --gecos "" ${USER}
@@ -158,16 +146,15 @@ RUN if [ "$CLAM_AV" = "yes" ]; then \
         rm -rf /var/lib/apt/lists/*; \
     fi
 
-# Install wheels from the build image
 RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:${PATH}"
-# Prevent security scanners from finding vulnerabilities in whatever version of setuptools
-# is included in Ubuntu by default.
 RUN python -m pip uninstall -y setuptools
 ARG PIP_VERSION
 ARG PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN python -m pip install -U pip==${PIP_VERSION}
+
+# BIND mount dibolehkan oleh Railway
 RUN --mount=type=bind,from=build-image,source=/tmp/wheelhouse,target=/mnt/wheelhouse \
     --mount=type=bind,from=build-image-av,source=/tmp/wheelhouse,target=/mnt/wheelhouse-av \
     python -m pip install --no-index /mnt/wheelhouse/*.whl /mnt/wheelhouse-av/*.whl
@@ -175,19 +162,13 @@ RUN --mount=type=bind,from=build-image,source=/tmp/wheelhouse,target=/mnt/wheelh
 ENV NUMPROCS=1
 COPY --from=build-image-av /opt/ffmpeg/lib /usr/lib
 
-# These variables are required for supervisord substitutions in files
-# This library allows remote python debugging with VS Code
 ARG CVAT_DEBUG_ENABLED
 RUN if [ "${CVAT_DEBUG_ENABLED}" = 'yes' ]; then \
         python3 -m pip install --no-cache-dir debugpy; \
     fi
 
-# Removing pip due to security reasons. See: https://scout.docker.com/vulnerabilities/id/CVE-2018-20225
-# The vulnerability is dubious and we don't use pip at runtime, but some vulnerability scanners mark it as a high vulnerability,
-# and it was decided to remove pip from the final image
 RUN python -m pip uninstall -y pip
 
-# Install and initialize CVAT, copy all necessary files
 COPY cvat/nginx.conf /etc/nginx/nginx.conf
 COPY --chown=${USER} supervisord/ ${HOME}/supervisord
 COPY --chown=${USER} backend_entrypoint.d/ ${HOME}/backend_entrypoint.d
@@ -201,8 +182,6 @@ RUN if [ "${COVERAGE_PROCESS_START}" ]; then \
         echo "import coverage; coverage.process_startup()" > /opt/venv/lib/python3.10/site-packages/coverage_subprocess.pth; \
     fi
 
-# RUN all commands below as 'django' user.
-# Use numeric UID/GID so that the image is compatible with the Kubernetes runAsNonRoot setting.
 USER 1000:1000
 WORKDIR ${HOME}
 
