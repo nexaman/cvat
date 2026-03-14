@@ -29,7 +29,7 @@ RUN apt-get update && \
 
 ARG PIP_VERSION
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-RUN --mount=type=cache,id=cvat-pip,target=/root/.cache/pip/http \
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip/http \
     python3 -m pip install -U pip==${PIP_VERSION}
 
 # We build OpenH264, FFmpeg and PyAV in a separate build stage,
@@ -64,7 +64,7 @@ COPY utils/dataset_manifest/requirements.txt /tmp/utils/dataset_manifest/require
 RUN grep -q '^av==' /tmp/utils/dataset_manifest/requirements.txt
 RUN sed -i '/^av==/!d' /tmp/utils/dataset_manifest/requirements.txt
 
-RUN --mount=type=cache,id=cvat-pip,target=/root/.cache/pip/http-v2 \
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip/http-v2 \
     python3 -m pip wheel --no-binary=av \
     -r /tmp/utils/dataset_manifest/requirements.txt \
     -w /tmp/wheelhouse
@@ -80,7 +80,7 @@ RUN sed -i '/^av==/d' /tmp/utils/dataset_manifest/requirements.txt
 
 ARG CVAT_CONFIGURATION="production"
 
-RUN --mount=type=cache,id=cvat-pip,target=/root/.cache/pip/http-v2 \
+RUN --mount=type=cache,id=pip-cache,target=/root/.cache/pip/http-v2 \
     DATUMARO_HEADLESS=1 python3 -m pip wheel --no-deps --no-binary lxml,xmlsec \
     -r /tmp/cvat/requirements/${CVAT_CONFIGURATION}.txt \
     -w /tmp/wheelhouse
