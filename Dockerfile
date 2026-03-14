@@ -69,7 +69,7 @@ RUN sed -i '/^av==/d' /tmp/utils/dataset_manifest/requirements.txt
 
 ARG CVAT_CONFIGURATION="production"
 
-# --- PERBAIKAN DI SINI: Mount Cache Dihapus ---
+# --- PERBAIKAN: Menggunakan RUN Standar ---
 RUN DATUMARO_HEADLESS=1 python3 -m pip wheel --no-deps --no-binary lxml,xmlsec \
     -r /tmp/cvat/requirements/${CVAT_CONFIGURATION}.txt \
     -w /tmp/wheelhouse
@@ -154,10 +154,11 @@ ARG PIP_DISABLE_PIP_VERSION_CHECK=1
 
 RUN python -m pip install -U pip==${PIP_VERSION}
 
-# BIND mount dibolehkan oleh Railway
-RUN --mount=type=bind,from=build-image,source=/tmp/wheelhouse,target=/mnt/wheelhouse \
-    --mount=type=bind,from=build-image-av,source=/tmp/wheelhouse,target=/mnt/wheelhouse-av \
-    python -m pip install --no-index /mnt/wheelhouse/*.whl /mnt/wheelhouse-av/*.whl
+# --- PERBAIKAN TOTAL: Ganti --mount dengan COPY Standar ---
+COPY --from=build-image /tmp/wheelhouse /tmp/wheelhouse
+COPY --from=build-image-av /tmp/wheelhouse /tmp/wheelhouse-av
+RUN python -m pip install --no-index /tmp/wheelhouse/*.whl /tmp/wheelhouse-av/*.whl && \
+    rm -rf /tmp/wheelhouse /tmp/wheelhouse-av
 
 ENV NUMPROCS=1
 COPY --from=build-image-av /opt/ffmpeg/lib /usr/lib
